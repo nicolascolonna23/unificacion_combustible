@@ -97,6 +97,11 @@ const DIR_ESTADIAS = "San Fernando del Valle de Catamarca, Catamarca";  // <-- p
 // Coordenadas fijas (evitan geocodificar estas dos). Formato: [lat, lon] o null para buscar.
 const COORD_LLANTAY  = null;
 const COORD_ESTADIAS = null;
+// Coordenadas manuales para direcciones que OpenStreetMap no encuentra.
+// Clave: texto EXACTO de la columna localidad. Valor: [lat, lon]
+const COORDS_FIJAS = {
+  // "CAMINO DEL BUEN AYRE, KM 19 (ENT, VILLA UDAONDO, Buenos Aires": [-34.6170, -58.6940],
+};
 /* ========================================== */
 
 const datos = { LLANTAY:[], ESTADIAS:[], YPF:[], AXION:[] };
@@ -184,7 +189,7 @@ function parseEstadias(wb){
   for(const r of rows){
     const f=fila(toDate(r['Fecha']),pat(r['Patente']),DIR_ESTADIAS,
                  num(r['CantidadDetalle']),num(r['TotalDetalle']),
-                 String(r['Articulo']??'').trim().toUpperCase(),'ESTADIAS Y SERVICIOS');
+                 String(r['Articulo']??'').trim().toUpperCase(),'ESTADIAS');
     if(f) out.push(f);
   }
   return out;
@@ -252,6 +257,7 @@ async function procesar(file){
 const geoCache = new Map();
 if(COORD_LLANTAY)  geoCache.set(DIR_LLANTAY,  {lat:COORD_LLANTAY[0],  lon:COORD_LLANTAY[1]});
 if(COORD_ESTADIAS) geoCache.set(DIR_ESTADIAS, {lat:COORD_ESTADIAS[0], lon:COORD_ESTADIAS[1]});
+for(const [d,c] of Object.entries(COORDS_FIJAS)) geoCache.set(d,{lat:c[0],lon:c[1]});
 
 const pausa = ms => new Promise(r=>setTimeout(r,ms));
 
@@ -263,6 +269,20 @@ async function nominatim(q){
   return j.length ? {lat:+j[0].lat, lon:+j[0].lon} : null;
 }
 
+function limpiarDir(d){
+  return d
+    .replace(/\([^),]*\)?/g,' ')      // saca parentesis, incluso sin cerrar: "(ENT"
+    .replace(/\bKM\.?\s*[\d.,]+/gi,' ') // saca "KM 19"
+    .split(',').map(p=>p.trim()).filter(Boolean).join(', ');
+}
+function intentosDe(d){
+  const lim=limpiarDir(d);
+  const partes=d.split(',').map(p=>p.trim()).filter(Boolean);
+  const lista=[d, lim];
+  if(partes.length>1) lista.push(partes.slice(1).join(', '));          // sin calle
+  if(partes.length>2) lista.push(partes.slice(-2).join(', '));         // solo localidad + provincia
+  return [...new Set(lista.filter(Boolean))];
+}
 async function geocodificar(dirs){
   const pendientes=dirs.filter(d=>d && !geoCache.has(d));
   if(!pendientes.length) return;
@@ -274,17 +294,15 @@ async function geocodificar(dirs){
     btn.textContent=`Buscando coordenadas ${i+1}/${pendientes.length}…`;
     $('barFill').style.width=(100*(i+1)/pendientes.length)+'%';
     let r=null;
-    try{
-      r=await nominatim(d);
-      if(!r){ // reintento sin la calle (solo localidad + provincia)
-        const partes=d.split(',').map(p=>p.trim());
-        if(partes.length>1){ await pausa(1100); r=await nominatim(partes.slice(1).join(', ')); }
-      }
-    }catch(e){}
-    if(r) geoCache.set(d,r); else { geoCache.set(d,{lat:null,lon:null}); fallas++; }
+    for(const q of intentosDe(d)){
+      try{ r=await nominatim(q); }catch(e){ r=null; }
+      if(r) break;
+      await pausa(1100);
+    }
+    if(r) geoCache.set(d,r); else { geoCache.set(d,{lat:null,lon:null}); fallas++; log(`Sin coordenadas: ${d}`,1); }
     if(i<pendientes.length-1) await pausa(1100);
   }
-  if(fallas) log(`${fallas} direcciones sin coordenadas (quedan vacías)`);
+  if(fallas) log(`${fallas} direcciones sin coordenadas — podes fijarlas a mano en COORDS_FIJAS`);
   btn.textContent=txtOrig; btn.disabled=false;
 }
 
