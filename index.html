@@ -37,6 +37,13 @@
   .btn-sec{background:transparent;border:1px solid var(--line);color:var(--dim);font-weight:600;font-size:13px;padding:9px}
   .btn-sec:not(:disabled):hover{background:var(--panel2);border-color:var(--dim);color:var(--txt)}
 
+  .geo{display:flex;align-items:center;gap:10px;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px}
+  .geo input{width:16px;height:16px;accent-color:var(--amber)}
+  .geo .hint{color:var(--dim);font-size:12px}
+
+  .bar{display:none;margin-top:12px;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--amber);transition:width .3s}
+
   .resumen{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none}
   .resumen h2{font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
@@ -51,7 +58,7 @@
 <body>
 <div class="wrap">
   <header><h1>Unificador de Remitos</h1><span class="tag">POWER BI</span></header>
-  <p class="sub">Subí los 4 archivos (Llantay · Estadías · YPF · Axion). Se detectan solos. Devuelve <b>remitos_unificados.xlsx</b>.</p>
+  <p class="sub">Subí los archivos (Llantay · Estadías · YPF · Axion). Se detectan solos, podés subir varios por estación. Devuelve <b>remitos_unificados.xlsx</b>.</p>
 
   <label class="drop" id="drop">
     <div class="big">Arrastrá los archivos acá o hacé clic</div>
@@ -66,6 +73,13 @@
     <div class="slot" id="slot-AXION"><div class="name">Axion ON</div><div class="st">pendiente</div></div>
   </div>
 
+  <label class="geo">
+    <input type="checkbox" id="chkGeo" checked>
+    <span>Buscar latitud / longitud de cada dirección</span>
+    <span class="hint">(OpenStreetMap, ~1 seg por dirección nueva)</span>
+  </label>
+  <div class="bar" id="bar"><i id="barFill"></i></div>
+
   <button class="btn" id="btnGo" disabled>Descargar Excel unificado</button>
   <button class="btn btn-sec" id="btnReset">Limpiar todo</button>
 
@@ -78,8 +92,11 @@
 
 <script>
 /* ================= CONFIG ================= */
-const LOCALIDAD_LLANTAY  = "Av. Güemes 298, K4700 San Fernando del Valle de Catamarca, Catamarca";
-const LOCALIDAD_ESTADIAS = "San Fernando del Valle de Catamarca";
+const DIR_LLANTAY  = "Av. Güemes 298, San Fernando del Valle de Catamarca, Catamarca";
+const DIR_ESTADIAS = "San Fernando del Valle de Catamarca, Catamarca";  // <-- poner dirección exacta
+// Coordenadas fijas (evitan geocodificar estas dos). Formato: [lat, lon] o null para buscar.
+const COORD_LLANTAY  = null;
+const COORD_ESTADIAS = null;
 /* ========================================== */
 
 const datos = { LLANTAY:[], ESTADIAS:[], YPF:[], AXION:[] };
@@ -97,7 +114,8 @@ function checkReady(){ $('btnGo').disabled = (datos.LLANTAY.length+datos.ESTADIA
 function reiniciar(){
   for(const k in datos){ datos[k]=[]; nArch[k]=0;
     const el=$('slot-'+k); el.classList.remove('ok'); el.querySelector('.st').textContent='pendiente'; }
-  $('log').innerHTML=''; $('resumen').style.display='none'; $('fileInput').value=''; checkReady();
+  $('log').innerHTML=''; $('resumen').style.display='none'; $('fileInput').value='';
+  $('bar').style.display='none'; $('barFill').style.width='0'; checkReady();
 }
 
 /* ---------- helpers ---------- */
@@ -105,9 +123,9 @@ function toDate(v){
   if(v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
   if(typeof v==='number' && v>20000 && v<80000){ const d=new Date(Math.round((v-25569)*86400*1000)); return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
   if(typeof v==='string'){
-    let m=v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);           // dd/mm/yyyy
+    let m=v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if(m) return new Date(+m[3],+m[2]-1,+m[1]);
-    m=v.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);                     // yyyy-mm-dd
+    m=v.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
     if(m) return new Date(+m[1],+m[2]-1,+m[3]);
   }
   return null;
@@ -124,9 +142,11 @@ function num(v){
   return parseFloat(String(v).trim().replace(',','.'));
 }
 function pat(v){ return String(v??'').replace(/\s+/g,'').toUpperCase().trim(); }
+function limpio(v){ return String(v??'').replace(/\s+/g,' ').trim(); }
+function armarDir(...partes){ return partes.map(limpio).filter(p=>p&&p!=='NAN').join(', '); }
 function fila(fecha,patente,localidad,litros,monto,tipo,estacion){
   if(!fecha||!patente||isNaN(litros)) return null;
-  return {fecha,patente,localidad:localidad||'',litros,monto:isNaN(monto)?null:monto,tipo_combustible:tipo,estacion};
+  return {fecha,patente,localidad:localidad||'',litros,monto:isNaN(monto)?null:monto,tipo_combustible:tipo,estacion,lat:null,lon:null};
 }
 
 /* ---------- parsers ---------- */
@@ -152,7 +172,7 @@ function parseLlantay(wb){
       const r=rows[i]||[];
       const raw=String(r[iF]??'');
       if(/TOTALES|CTA-MADRE|Hay Comp/i.test(raw)) continue;
-      const f=fila(toDate(r[iF]),pat(r[iP]),LOCALIDAD_LLANTAY,num(r[iL]),num(r[iM]),tipo,'LLANTAY');
+      const f=fila(toDate(r[iF]),pat(r[iP]),DIR_LLANTAY,num(r[iL]),num(r[iM]),tipo,'LLANTAY');
       if(f) out.push(f);
     }
   }
@@ -162,7 +182,7 @@ function parseEstadias(wb){
   const rows=XLSX.utils.sheet_to_json(wb.Sheets['Reporte'],{defval:null});
   const out=[];
   for(const r of rows){
-    const f=fila(toDate(r['Fecha']),pat(r['Patente']),LOCALIDAD_ESTADIAS,
+    const f=fila(toDate(r['Fecha']),pat(r['Patente']),DIR_ESTADIAS,
                  num(r['CantidadDetalle']),num(r['TotalDetalle']),
                  String(r['Articulo']??'').trim().toUpperCase(),'ESTADIAS Y SERVICIOS');
     if(f) out.push(f);
@@ -174,9 +194,10 @@ function parseYPF(wb){
   const out=[];
   for(const r of rows){
     const est=String(r['ESTABLECIMIENTO']??'').replace(/^\d+\s*-\s*/,'').trim();
-    const f=fila(toDate(r['FECHA']),pat(r['IDENTIFICACION TARJETA']),
-                 String(r['LOCALIDAD']??'').trim(),num(r['LITROS UNIDADES']),
-                 num(r['IMP TOT YER']),String(r['PRODUCTO']??'').trim().toUpperCase(),est);
+    const dir=armarDir(r['DOMICILIO'], r['LOCALIDAD'], r['PROVINCIA']);
+    const f=fila(toDate(r['FECHA']),pat(r['IDENTIFICACION TARJETA']),dir,
+                 num(r['LITROS UNIDADES']),num(r['IMP TOT YER']),
+                 String(r['PRODUCTO']??'').trim().toUpperCase(),est);
     if(f) out.push(f);
   }
   return out;
@@ -186,12 +207,14 @@ function parseAxion(text){
   const h=lines[0].split(';').map(c=>c.trim());
   const idx=n=>h.indexOf(n);
   const iF=idx('Fecha Red'),iP=idx('Patente'),iLoc=idx('Localidad EESS'),
-        iL=idx('Cantidad'),iM=idx('Total'),iT=idx('Descripción'),iD=idx('Dirección EESS');
+        iProv=idx('Provincia EESS'),iL=idx('Cantidad'),iM=idx('Total'),
+        iT=idx('Descripción'),iD=idx('Dirección EESS');
   const out=[];
   for(let i=1;i<lines.length;i++){
     const c=lines[i].split(';');
     const tipo=String(c[iT]??'').replace(' B%','').trim().toUpperCase();
-    const f=fila(fechaAxion(c[iF]),pat(c[iP]),String(c[iLoc]??'').trim(),
+    const dir=armarDir(c[iD], c[iLoc], iProv>=0?c[iProv]:'');
+    const f=fila(fechaAxion(c[iF]),pat(c[iP]),dir,
                  num(c[iL]),num(c[iM]),tipo,String(c[iD]??'').trim());
     if(f) out.push(f);
   }
@@ -226,8 +249,48 @@ async function procesar(file){
   checkReady();
 }
 
+/* ---------- geocodificacion (Nominatim / OpenStreetMap) ---------- */
+const geoCache = new Map();
+if(COORD_LLANTAY)  geoCache.set(DIR_LLANTAY,  {lat:COORD_LLANTAY[0],  lon:COORD_LLANTAY[1]});
+if(COORD_ESTADIAS) geoCache.set(DIR_ESTADIAS, {lat:COORD_ESTADIAS[0], lon:COORD_ESTADIAS[1]});
+
+const pausa = ms => new Promise(r=>setTimeout(r,ms));
+
+async function nominatim(q){
+  const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q='+encodeURIComponent(q+', Argentina');
+  const res=await fetch(url,{headers:{'Accept':'application/json'}});
+  if(!res.ok) return null;
+  const j=await res.json();
+  return j.length ? {lat:+j[0].lat, lon:+j[0].lon} : null;
+}
+
+async function geocodificar(dirs){
+  const pendientes=dirs.filter(d=>d && !geoCache.has(d));
+  if(!pendientes.length) return;
+  $('bar').style.display='block';
+  const btn=$('btnGo'); const txtOrig=btn.textContent; btn.disabled=true;
+  let fallas=0;
+  for(let i=0;i<pendientes.length;i++){
+    const d=pendientes[i];
+    btn.textContent=`Buscando coordenadas ${i+1}/${pendientes.length}…`;
+    $('barFill').style.width=(100*(i+1)/pendientes.length)+'%';
+    let r=null;
+    try{
+      r=await nominatim(d);
+      if(!r){ // reintento sin la calle (solo localidad + provincia)
+        const partes=d.split(',').map(p=>p.trim());
+        if(partes.length>1){ await pausa(1100); r=await nominatim(partes.slice(1).join(', ')); }
+      }
+    }catch(e){}
+    if(r) geoCache.set(d,r); else { geoCache.set(d,{lat:null,lon:null}); fallas++; }
+    if(i<pendientes.length-1) await pausa(1100);
+  }
+  if(fallas) log(`${fallas} direcciones sin coordenadas (quedan vacías)`);
+  btn.textContent=txtOrig; btn.disabled=false;
+}
+
 /* ---------- salida ---------- */
-function generar(){
+async function generar(){
   let all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION];
   const vistos=new Set(); const antes=all.length;
   all=all.filter(r=>{
@@ -236,6 +299,14 @@ function generar(){
   });
   if(antes>all.length) log(`${antes-all.length} filas duplicadas eliminadas (mismo archivo subido 2 veces)`);
   all.sort((a,b)=>a.fecha-b.fecha);
+
+  if($('chkGeo').checked){
+    await geocodificar([...new Set(all.map(r=>r.localidad))]);
+    for(const r of all){
+      const g=geoCache.get(r.localidad);
+      if(g){ r.lat=g.lat; r.lon=g.lon; }
+    }
+  }
 
   // resumen
   const g={};
@@ -251,15 +322,14 @@ function generar(){
   $('tbl').innerHTML=html; $('resumen').style.display='block';
 
   // excel
-  const aoa=[["fecha","patente","localidad","litros","monto","tipo_combustible","estacion"]];
-  for(const r of all) aoa.push([r.fecha,r.patente,r.localidad,r.litros,r.monto,r.tipo_combustible,r.estacion]);
+  const aoa=[["fecha","patente","localidad","latitud","longitud","litros","monto","tipo_combustible","estacion"]];
+  for(const r of all) aoa.push([r.fecha,r.patente,r.localidad,r.lat,r.lon,r.litros,r.monto,r.tipo_combustible,r.estacion]);
   const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
   for(let i=1;i<aoa.length;i++){
-    const cF=ws[XLSX.utils.encode_cell({r:i,c:0})]; if(cF){cF.z='dd/mm/yyyy';}
-    const cL=ws[XLSX.utils.encode_cell({r:i,c:3})]; if(cL){cL.z='#,##0.00';}
-    const cM=ws[XLSX.utils.encode_cell({r:i,c:4})]; if(cM){cM.z='#,##0.00';}
+    const set=(c,z)=>{const cell=ws[XLSX.utils.encode_cell({r:i,c})]; if(cell)cell.z=z;};
+    set(0,'dd/mm/yyyy'); set(3,'0.000000'); set(4,'0.000000'); set(5,'#,##0.00'); set(6,'#,##0.00');
   }
-  ws['!cols']=[{wch:12},{wch:11},{wch:30},{wch:10},{wch:14},{wch:18},{wch:36}];
+  ws['!cols']=[{wch:12},{wch:11},{wch:44},{wch:11},{wch:11},{wch:10},{wch:14},{wch:18},{wch:36}];
   const wbOut=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wbOut,ws,"Remitos");
   XLSX.writeFile(wbOut,"remitos_unificados.xlsx");
