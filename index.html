@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unificador de Remitos — Combustible</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#101418; --panel:#171d23; --panel2:#1e262e; --line:#2a343e;
+    --txt:#e8edf2; --dim:#8b98a5; --amber:#f6b21b; --amber-dk:#c78d0a;
+    --ok:#3ecf8e; --err:#ff6b6b; --mono:'SF Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding:32px 16px}
+  .wrap{max-width:860px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+  h1{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--amber);border:1px solid var(--amber-dk);border-radius:4px;padding:2px 8px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:24px}
+
+  .drop{border:2px dashed var(--line);border-radius:12px;background:var(--panel);padding:36px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+  .drop:hover,.drop.over{border-color:var(--amber);background:var(--panel2)}
+  .drop .big{font-size:16px;font-weight:600}
+  .drop .small{color:var(--dim);font-size:13px;margin-top:4px}
+  input[type=file]{display:none}
+
+  .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:18px 0}
+  .slot{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .slot .name{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--dim);text-transform:uppercase}
+  .slot .st{font-family:var(--mono);font-size:12px;margin-top:6px;color:var(--dim)}
+  .slot.ok{border-color:var(--ok)} .slot.ok .st{color:var(--ok)}
+
+  .btn{display:block;width:100%;margin-top:8px;padding:14px;border:0;border-radius:10px;background:var(--amber);color:#161200;font-size:16px;font-weight:700;cursor:pointer}
+  .btn:disabled{background:var(--panel2);color:var(--dim);cursor:not-allowed}
+  .btn:not(:disabled):hover{background:#ffc23a}
+
+  .resumen{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none}
+  .resumen h2{font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+  th,td{padding:7px 16px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--dim);font-weight:600}
+  tr.total td{color:var(--amber);font-weight:700;border-top:2px solid var(--line)}
+  .log{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--dim);white-space:pre-wrap}
+  .log .e{color:var(--err)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Unificador de Remitos</h1><span class="tag">POWER BI</span></header>
+  <p class="sub">Subí los 4 archivos (Llantay · Estadías · YPF · Axion). Se detectan solos. Devuelve <b>remitos_unificados.xlsx</b>.</p>
+
+  <label class="drop" id="drop">
+    <div class="big">Arrastrá los archivos acá o hacé clic</div>
+    <div class="small">.xlsx / .xls / .csv — podés subirlos todos juntos</div>
+    <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv">
+  </label>
+
+  <div class="slots">
+    <div class="slot" id="slot-LLANTAY"><div class="name">Llantay</div><div class="st">pendiente</div></div>
+    <div class="slot" id="slot-ESTADIAS"><div class="name">Estadías y Serv.</div><div class="st">pendiente</div></div>
+    <div class="slot" id="slot-YPF"><div class="name">YPF en Ruta</div><div class="st">pendiente</div></div>
+    <div class="slot" id="slot-AXION"><div class="name">Axion ON</div><div class="st">pendiente</div></div>
+  </div>
+
+  <button class="btn" id="btnGo" disabled>Descargar Excel unificado</button>
+
+  <div class="resumen" id="resumen">
+    <h2>Resumen por estación</h2>
+    <table id="tbl"></table>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const LOCALIDAD_LLANTAY  = "San Fernando del Valle de Catamarca";
+const LOCALIDAD_ESTADIAS = "San Fernando del Valle de Catamarca";
+/* ========================================== */
+
+const datos = { LLANTAY:null, ESTADIAS:null, YPF:null, AXION:null };
+const $ = id => document.getElementById(id);
+
+function log(msg, err){ const s=document.createElement('div'); if(err)s.className='e'; s.textContent=msg; $('log').appendChild(s); }
+function setSlot(k, txt){ const el=$('slot-'+k); el.classList.add('ok'); el.querySelector('.st').textContent=txt; }
+function checkReady(){ $('btnGo').disabled = !(datos.LLANTAY&&datos.ESTADIAS&&datos.YPF&&datos.AXION); }
+
+/* ---------- helpers ---------- */
+function toDate(v){
+  if(v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
+  if(typeof v==='number' && v>20000 && v<80000){ const d=new Date(Math.round((v-25569)*86400*1000)); return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }
+  if(typeof v==='string'){
+    let m=v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);           // dd/mm/yyyy
+    if(m) return new Date(+m[3],+m[2]-1,+m[1]);
+    m=v.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);                     // yyyy-mm-dd
+    if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  }
+  return null;
+}
+const MESES={ENE:0,FEB:1,MAR:2,ABR:3,MAY:4,JUN:5,JUL:6,AGO:7,SEP:8,SET:8,OCT:9,NOV:10,DIC:11};
+function fechaAxion(s){
+  const m=String(s).trim().toUpperCase().match(/^(\d{1,2})-([A-Z]{3})-(\d{2})$/);
+  if(!m || !(m[2] in MESES)) return null;
+  return new Date(2000+ +m[3], MESES[m[2]], +m[1]);
+}
+function num(v){
+  if(typeof v==='number') return v;
+  if(v==null) return NaN;
+  return parseFloat(String(v).trim().replace(',','.'));
+}
+function pat(v){ return String(v??'').replace(/\s+/g,'').toUpperCase().trim(); }
+function fila(fecha,patente,localidad,litros,monto,tipo,estacion){
+  if(!fecha||!patente||isNaN(litros)) return null;
+  return {fecha,patente,localidad:localidad||'',litros,monto:isNaN(monto)?null:monto,tipo_combustible:tipo,estacion};
+}
+
+/* ---------- parsers ---------- */
+function parseLlantay(wb){
+  const out=[];
+  for(const sn of wb.SheetNames){
+    const up=sn.toUpperCase();
+    let tipo=null;
+    if(up.includes('X10')) tipo='DIESEL X10';
+    else if(up.includes('QUANTIUM')) tipo='QUANTIUM DIESEL';
+    else continue;
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:null});
+    let hdr=-1;
+    for(let i=0;i<Math.min(15,rows.length);i++){
+      const r=(rows[i]||[]).map(c=>String(c??'').trim());
+      if(r.includes('Fecha') && r.some(c=>c.includes('bitos'))){hdr=i;break;}
+    }
+    if(hdr<0) continue;
+    const h=(rows[hdr]||[]).map(c=>String(c??'').trim());
+    const iF=h.indexOf('Fecha'), iM=h.findIndex(c=>c.includes('bitos')),
+          iL=h.indexOf('litros'), iP=h.indexOf('patente');
+    for(let i=hdr+1;i<rows.length;i++){
+      const r=rows[i]||[];
+      const raw=String(r[iF]??'');
+      if(/TOTALES|CTA-MADRE|Hay Comp/i.test(raw)) continue;
+      const f=fila(toDate(r[iF]),pat(r[iP]),LOCALIDAD_LLANTAY,num(r[iL]),num(r[iM]),tipo,'LLANTAY');
+      if(f) out.push(f);
+    }
+  }
+  return out;
+}
+function parseEstadias(wb){
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets['Reporte'],{defval:null});
+  const out=[];
+  for(const r of rows){
+    const f=fila(toDate(r['Fecha']),pat(r['Patente']),LOCALIDAD_ESTADIAS,
+                 num(r['CantidadDetalle']),num(r['TotalDetalle']),
+                 String(r['Articulo']??'').trim().toUpperCase(),'ESTADIAS Y SERVICIOS');
+    if(f) out.push(f);
+  }
+  return out;
+}
+function parseYPF(wb){
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:null});
+  const out=[];
+  for(const r of rows){
+    const est=String(r['ESTABLECIMIENTO']??'').replace(/^\d+\s*-\s*/,'').trim();
+    const f=fila(toDate(r['FECHA']),pat(r['IDENTIFICACION TARJETA']),
+                 String(r['LOCALIDAD']??'').trim(),num(r['LITROS UNIDADES']),
+                 num(r['IMP TOT YER']),String(r['PRODUCTO']??'').trim().toUpperCase(),est);
+    if(f) out.push(f);
+  }
+  return out;
+}
+function parseAxion(text){
+  const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim());
+  const h=lines[0].split(';').map(c=>c.trim());
+  const idx=n=>h.indexOf(n);
+  const iF=idx('Fecha Red'),iP=idx('Patente'),iLoc=idx('Localidad EESS'),
+        iL=idx('Cantidad'),iM=idx('Total'),iT=idx('Descripción'),iD=idx('Dirección EESS');
+  const out=[];
+  for(let i=1;i<lines.length;i++){
+    const c=lines[i].split(';');
+    const tipo=String(c[iT]??'').replace(' B%','').trim().toUpperCase();
+    const f=fila(fechaAxion(c[iF]),pat(c[iP]),String(c[iLoc]??'').trim(),
+                 num(c[iL]),num(c[iM]),tipo,String(c[iD]??'').trim());
+    if(f) out.push(f);
+  }
+  return out;
+}
+
+/* ---------- deteccion ---------- */
+async function procesar(file){
+  const name=file.name;
+  try{
+    if(/\.csv$/i.test(name)){
+      const text=await file.text();
+      if(text.includes('Fecha Red')&&text.includes('Localidad EESS')){
+        datos.AXION=parseAxion(text);
+        setSlot('AXION',`${name} · ${datos.AXION.length} filas`);
+      } else log(`${name}: CSV no reconocido (falta "Fecha Red")`,1);
+    } else {
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{cellDates:true});
+      const sheetsUp=wb.SheetNames.map(s=>s.toUpperCase());
+      if(sheetsUp.some(s=>s.includes('X10'))){
+        datos.LLANTAY=parseLlantay(wb);
+        setSlot('LLANTAY',`${name} · ${datos.LLANTAY.length} filas`);
+      } else if(wb.SheetNames.includes('Reporte')){
+        datos.ESTADIAS=parseEstadias(wb);
+        setSlot('ESTADIAS',`${name} · ${datos.ESTADIAS.length} filas`);
+      } else {
+        const probe=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1})[0]||[];
+        if(probe.includes('ESTABLECIMIENTO')&&probe.includes('LITROS UNIDADES')){
+          datos.YPF=parseYPF(wb);
+          setSlot('YPF',`${name} · ${datos.YPF.length} filas`);
+        } else log(`${name}: no reconocido`,1);
+      }
+    }
+  }catch(e){ log(`${name}: error — ${e.message}`,1); }
+  checkReady();
+}
+
+/* ---------- salida ---------- */
+function generar(){
+  const all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION]
+            .sort((a,b)=>a.fecha-b.fecha);
+
+  // resumen
+  const g={};
+  for(const r of all){ (g[r.estacion]??={n:0,l:0,m:0}); g[r.estacion].n++; g[r.estacion].l+=r.litros; g[r.estacion].m+=r.monto||0; }
+  const fmt=n=>n.toLocaleString('es-AR',{maximumFractionDigits:0});
+  let html='<tr><th>Estación</th><th>Filas</th><th>Litros</th><th>Monto</th></tr>';
+  const tot={n:0,l:0,m:0};
+  Object.keys(g).sort((a,b)=>g[b].m-g[a].m).forEach(k=>{
+    html+=`<tr><td>${k}</td><td>${g[k].n}</td><td>${fmt(g[k].l)}</td><td>$ ${fmt(g[k].m)}</td></tr>`;
+    tot.n+=g[k].n; tot.l+=g[k].l; tot.m+=g[k].m;
+  });
+  html+=`<tr class="total"><td>TOTAL</td><td>${tot.n}</td><td>${fmt(tot.l)}</td><td>$ ${fmt(tot.m)}</td></tr>`;
+  $('tbl').innerHTML=html; $('resumen').style.display='block';
+
+  // excel
+  const aoa=[["fecha","patente","localidad","litros","monto","tipo_combustible","estacion"]];
+  for(const r of all) aoa.push([r.fecha,r.patente,r.localidad,r.litros,r.monto,r.tipo_combustible,r.estacion]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
+  for(let i=1;i<aoa.length;i++){
+    const cF=ws[XLSX.utils.encode_cell({r:i,c:0})]; if(cF){cF.z='dd/mm/yyyy';}
+    const cL=ws[XLSX.utils.encode_cell({r:i,c:3})]; if(cL){cL.z='#,##0.00';}
+    const cM=ws[XLSX.utils.encode_cell({r:i,c:4})]; if(cM){cM.z='#,##0.00';}
+  }
+  ws['!cols']=[{wch:12},{wch:11},{wch:30},{wch:10},{wch:14},{wch:18},{wch:36}];
+  const wbOut=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wbOut,ws,"Remitos");
+  XLSX.writeFile(wbOut,"remitos_unificados.xlsx");
+}
+
+/* ---------- eventos ---------- */
+const drop=$('drop');
+$('fileInput').addEventListener('change',e=>[...e.target.files].forEach(procesar));
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
+drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');[...e.dataTransfer.files].forEach(procesar);});
+$('btnGo').addEventListener('click',generar);
+</script>
+</body>
+</html>
