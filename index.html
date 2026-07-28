@@ -193,11 +193,10 @@ function parseYPF(wb){
   const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:null});
   const out=[];
   for(const r of rows){
-    const est=String(r['ESTABLECIMIENTO']??'').replace(/^\d+\s*-\s*/,'').trim();
     const dir=armarDir(r['DOMICILIO'], r['LOCALIDAD'], r['PROVINCIA']);
     const f=fila(toDate(r['FECHA']),pat(r['IDENTIFICACION TARJETA']),dir,
                  num(r['LITROS UNIDADES']),num(r['IMP TOT YER']),
-                 String(r['PRODUCTO']??'').trim().toUpperCase(),est);
+                 String(r['PRODUCTO']??'').trim().toUpperCase(),'YPF');
     if(f) out.push(f);
   }
   return out;
@@ -215,7 +214,7 @@ function parseAxion(text){
     const tipo=String(c[iT]??'').replace(' B%','').trim().toUpperCase();
     const dir=armarDir(c[iD], c[iLoc], iProv>=0?c[iProv]:'');
     const f=fila(fechaAxion(c[iF]),pat(c[iP]),dir,
-                 num(c[iL]),num(c[iM]),tipo,String(c[iD]??'').trim());
+                 num(c[iL]),num(c[iM]),tipo,'AXION');
     if(f) out.push(f);
   }
   return out;
