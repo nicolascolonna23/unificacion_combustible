@@ -34,6 +34,8 @@
   .btn{display:block;width:100%;margin-top:8px;padding:14px;border:0;border-radius:10px;background:var(--amber);color:#161200;font-size:16px;font-weight:700;cursor:pointer}
   .btn:disabled{background:var(--panel2);color:var(--dim);cursor:not-allowed}
   .btn:not(:disabled):hover{background:#ffc23a}
+  .btn-sec{background:transparent;border:1px solid var(--line);color:var(--dim);font-weight:600;font-size:13px;padding:9px}
+  .btn-sec:not(:disabled):hover{background:var(--panel2);border-color:var(--dim);color:var(--txt)}
 
   .resumen{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none}
   .resumen h2{font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line)}
@@ -65,6 +67,7 @@
   </div>
 
   <button class="btn" id="btnGo" disabled>Descargar Excel unificado</button>
+  <button class="btn btn-sec" id="btnReset">Limpiar todo</button>
 
   <div class="resumen" id="resumen">
     <h2>Resumen por estación</h2>
@@ -79,12 +82,23 @@ const LOCALIDAD_LLANTAY  = "San Fernando del Valle de Catamarca";
 const LOCALIDAD_ESTADIAS = "San Fernando del Valle de Catamarca";
 /* ========================================== */
 
-const datos = { LLANTAY:null, ESTADIAS:null, YPF:null, AXION:null };
+const datos = { LLANTAY:[], ESTADIAS:[], YPF:[], AXION:[] };
+const nArch = { LLANTAY:0, ESTADIAS:0, YPF:0, AXION:0 };
 const $ = id => document.getElementById(id);
 
 function log(msg, err){ const s=document.createElement('div'); if(err)s.className='e'; s.textContent=msg; $('log').appendChild(s); }
-function setSlot(k, txt){ const el=$('slot-'+k); el.classList.add('ok'); el.querySelector('.st').textContent=txt; }
-function checkReady(){ $('btnGo').disabled = !(datos.LLANTAY&&datos.ESTADIAS&&datos.YPF&&datos.AXION); }
+function agregar(k, rows, fname){
+  datos[k].push(...rows); nArch[k]++;
+  const el=$('slot-'+k); el.classList.add('ok');
+  el.querySelector('.st').textContent=`${nArch[k]} archivo${nArch[k]>1?'s':''} · ${datos[k].length} filas`;
+  log(`${fname} → ${k} (+${rows.length} filas)`);
+}
+function checkReady(){ $('btnGo').disabled = (datos.LLANTAY.length+datos.ESTADIAS.length+datos.YPF.length+datos.AXION.length)===0; }
+function reiniciar(){
+  for(const k in datos){ datos[k]=[]; nArch[k]=0;
+    const el=$('slot-'+k); el.classList.remove('ok'); el.querySelector('.st').textContent='pendiente'; }
+  $('log').innerHTML=''; $('resumen').style.display='none'; $('fileInput').value=''; checkReady();
+}
 
 /* ---------- helpers ---------- */
 function toDate(v){
@@ -191,24 +205,20 @@ async function procesar(file){
     if(/\.csv$/i.test(name)){
       const text=await file.text();
       if(text.includes('Fecha Red')&&text.includes('Localidad EESS')){
-        datos.AXION=parseAxion(text);
-        setSlot('AXION',`${name} · ${datos.AXION.length} filas`);
+        agregar('AXION', parseAxion(text), name);
       } else log(`${name}: CSV no reconocido (falta "Fecha Red")`,1);
     } else {
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(buf,{cellDates:true});
       const sheetsUp=wb.SheetNames.map(s=>s.toUpperCase());
       if(sheetsUp.some(s=>s.includes('X10'))){
-        datos.LLANTAY=parseLlantay(wb);
-        setSlot('LLANTAY',`${name} · ${datos.LLANTAY.length} filas`);
+        agregar('LLANTAY', parseLlantay(wb), name);
       } else if(wb.SheetNames.includes('Reporte')){
-        datos.ESTADIAS=parseEstadias(wb);
-        setSlot('ESTADIAS',`${name} · ${datos.ESTADIAS.length} filas`);
+        agregar('ESTADIAS', parseEstadias(wb), name);
       } else {
         const probe=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1})[0]||[];
         if(probe.includes('ESTABLECIMIENTO')&&probe.includes('LITROS UNIDADES')){
-          datos.YPF=parseYPF(wb);
-          setSlot('YPF',`${name} · ${datos.YPF.length} filas`);
+          agregar('YPF', parseYPF(wb), name);
         } else log(`${name}: no reconocido`,1);
       }
     }
@@ -218,8 +228,14 @@ async function procesar(file){
 
 /* ---------- salida ---------- */
 function generar(){
-  const all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION]
-            .sort((a,b)=>a.fecha-b.fecha);
+  let all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION];
+  const vistos=new Set(); const antes=all.length;
+  all=all.filter(r=>{
+    const k=[+r.fecha,r.patente,r.litros,r.monto,r.tipo_combustible,r.estacion].join('|');
+    if(vistos.has(k)) return false; vistos.add(k); return true;
+  });
+  if(antes>all.length) log(`${antes-all.length} filas duplicadas eliminadas (mismo archivo subido 2 veces)`);
+  all.sort((a,b)=>a.fecha-b.fecha);
 
   // resumen
   const g={};
@@ -251,11 +267,12 @@ function generar(){
 
 /* ---------- eventos ---------- */
 const drop=$('drop');
-$('fileInput').addEventListener('change',e=>[...e.target.files].forEach(procesar));
+$('fileInput').addEventListener('change',e=>{[...e.target.files].forEach(procesar); e.target.value='';});
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
 drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
 drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');[...e.dataTransfer.files].forEach(procesar);});
 $('btnGo').addEventListener('click',generar);
+$('btnReset').addEventListener('click',reiniciar);
 </script>
 </body>
 </html>
