@@ -18,32 +18,26 @@
   h1{font-size:22px;font-weight:700;letter-spacing:-.3px}
   .tag{font-family:var(--mono);font-size:11px;color:var(--amber);border:1px solid var(--amber-dk);border-radius:4px;padding:2px 8px}
   .sub{color:var(--dim);font-size:13px;margin-bottom:24px}
-
   .drop{display:block;border:2px dashed var(--line);border-radius:12px;background:var(--panel);padding:36px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
   .drop:hover,.drop.over{border-color:var(--amber);background:var(--panel2)}
   .drop .big{font-size:16px;font-weight:600}
   .drop .small{color:var(--dim);font-size:13px;margin-top:4px}
   input[type=file]{display:none}
-
   .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:18px 0}
   .slot{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
   .slot .name{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--dim);text-transform:uppercase}
   .slot .st{font-family:var(--mono);font-size:12px;margin-top:6px;color:var(--dim)}
   .slot.ok{border-color:var(--ok)} .slot.ok .st{color:var(--ok)}
-
   .btn{display:block;width:100%;margin-top:8px;padding:14px;border:0;border-radius:10px;background:var(--amber);color:#161200;font-size:16px;font-weight:700;cursor:pointer}
   .btn:disabled{background:var(--panel2);color:var(--dim);cursor:not-allowed}
   .btn:not(:disabled):hover{background:#ffc23a}
   .btn-sec{background:transparent;border:1px solid var(--line);color:var(--dim);font-weight:600;font-size:13px;padding:9px}
   .btn-sec:not(:disabled):hover{background:var(--panel2);border-color:var(--dim);color:var(--txt)}
-
   .geo{display:flex;align-items:center;gap:10px;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px}
   .geo input{width:16px;height:16px;accent-color:var(--amber)}
   .geo .hint{color:var(--dim);font-size:12px}
-
   .bar{display:none;margin-top:12px;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
   .bar i{display:block;height:100%;width:0;background:var(--amber);transition:width .3s}
-
   .resumen{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none}
   .resumen h2{font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
@@ -59,37 +53,31 @@
 <div class="wrap">
   <header><h1>Unificador de Remitos</h1><span class="tag">POWER BI</span></header>
   <p class="sub">Subí los archivos (Llantay · Estadías · YPF · Axion). Se detectan solos, podés subir varios por estación. Devuelve <b>remitos_unificados.xlsx</b>.</p>
-
   <label class="drop" id="drop">
     <div class="big">Arrastrá los archivos acá o hacé clic</div>
     <div class="small">.xlsx / .xls / .csv — podés subirlos todos juntos</div>
     <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.csv">
   </label>
-
   <div class="slots">
     <div class="slot" id="slot-LLANTAY"><div class="name">Llantay</div><div class="st">pendiente</div></div>
     <div class="slot" id="slot-ESTADIAS"><div class="name">Estadías y Serv.</div><div class="st">pendiente</div></div>
     <div class="slot" id="slot-YPF"><div class="name">YPF en Ruta</div><div class="st">pendiente</div></div>
     <div class="slot" id="slot-AXION"><div class="name">Axion ON</div><div class="st">pendiente</div></div>
   </div>
-
   <label class="geo">
     <input type="checkbox" id="chkGeo" checked>
     <span>Buscar latitud / longitud de cada dirección</span>
     <span class="hint">(OpenStreetMap, ~1 seg por dirección nueva)</span>
   </label>
   <div class="bar" id="bar"><i id="barFill"></i></div>
-
   <button class="btn" id="btnGo" disabled>Descargar Excel unificado</button>
   <button class="btn btn-sec" id="btnReset">Limpiar todo</button>
-
   <div class="resumen" id="resumen">
     <h2>Resumen por estación</h2>
     <table id="tbl"></table>
   </div>
   <div class="log" id="log"></div>
 </div>
-
 <script>
 /* ================= CONFIG ================= */
 const DIR_LLANTAY  = "Av. Güemes 298, San Fernando del Valle de Catamarca, Catamarca";
@@ -103,11 +91,9 @@ const COORDS_FIJAS = {
   // "CAMINO DEL BUEN AYRE, KM 19 (ENT, VILLA UDAONDO, Buenos Aires": [-34.6170, -58.6940],
 };
 /* ========================================== */
-
 const datos = { LLANTAY:[], ESTADIAS:[], YPF:[], AXION:[] };
 const nArch = { LLANTAY:0, ESTADIAS:0, YPF:0, AXION:0 };
 const $ = id => document.getElementById(id);
-
 function log(msg, err){ const s=document.createElement('div'); if(err)s.className='e'; s.textContent=msg; $('log').appendChild(s); }
 function agregar(k, rows, fname){
   datos[k].push(...rows); nArch[k]++;
@@ -122,7 +108,6 @@ function reiniciar(){
   $('log').innerHTML=''; $('resumen').style.display='none'; $('fileInput').value='';
   $('bar').style.display='none'; $('barFill').style.width='0'; checkReady();
 }
-
 /* ---------- helpers ---------- */
 function toDate(v){
   if(v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
@@ -153,7 +138,6 @@ function fila(fecha,patente,localidad,litros,monto,tipo,estacion){
   if(!fecha||!patente||isNaN(litros)) return null;
   return {fecha,patente,localidad:localidad||'',litros,monto:isNaN(monto)?null:monto,tipo_combustible:tipo,estacion,lat:null,lon:null};
 }
-
 /* ---------- parsers ---------- */
 function parseLlantay(wb){
   const out=[];
@@ -207,31 +191,33 @@ function parseYPF(wb){
   return out;
 }
 function parseAxion(text){
-  const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim());
-  const h=lines[0].split(';').map(c=>c.trim());
+  const lines=text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.trim());
+  // el header real puede no ser la primera linea (hay una fila de titulo arriba)
+  let hi=lines.findIndex(l=>l.split(';').map(c=>c.trim()).includes('Fecha Red'));
+  if(hi<0) hi=0;
+  const h=lines[hi].split(';').map(c=>c.trim());
   const idx=n=>h.indexOf(n);
-  const iF=idx('Fecha Red'),iP=idx('Patente'),iLoc=idx('Localidad EESS'),
-        iProv=idx('Provincia EESS'),iL=idx('Cantidad'),iM=idx('Total'),
+  const iF=idx('Fecha Red'),iP=idx('Patente'),iLoc=idx('Localidad'),
+        iProv=idx('Provincia'),iL=idx('Cantidad'),iM=idx('Total'),
         iT=idx('Descripción'),iD=idx('Dirección EESS');
   const out=[];
-  for(let i=1;i<lines.length;i++){
+  for(let i=hi+1;i<lines.length;i++){
     const c=lines[i].split(';');
     const tipo=String(c[iT]??'').replace(' B%','').trim().toUpperCase();
-    const dir=armarDir(c[iD], c[iLoc], iProv>=0?c[iProv]:'');
-    const f=fila(fechaAxion(c[iF]),pat(c[iP]),dir,
+    const dir=armarDir(c[iD], iLoc>=0?c[iLoc]:'', iProv>=0?c[iProv]:'');
+    const f=fila(toDate(c[iF]),pat(c[iP]),dir,
                  num(c[iL]),num(c[iM]),tipo,'AXION');
     if(f) out.push(f);
   }
   return out;
 }
-
 /* ---------- deteccion ---------- */
 async function procesar(file){
   const name=file.name;
   try{
     if(/\.csv$/i.test(name)){
       const text=await file.text();
-      if(text.includes('Fecha Red')&&text.includes('Localidad EESS')){
+      if(text.includes('Fecha Red')&&text.includes('Dirección EESS')){
         agregar('AXION', parseAxion(text), name);
       } else log(`${name}: CSV no reconocido (falta "Fecha Red")`,1);
     } else {
@@ -252,15 +238,12 @@ async function procesar(file){
   }catch(e){ log(`${name}: error — ${e.message}`,1); }
   checkReady();
 }
-
 /* ---------- geocodificacion (Nominatim / OpenStreetMap) ---------- */
 const geoCache = new Map();
 if(COORD_LLANTAY)  geoCache.set(DIR_LLANTAY,  {lat:COORD_LLANTAY[0],  lon:COORD_LLANTAY[1]});
 if(COORD_ESTADIAS) geoCache.set(DIR_ESTADIAS, {lat:COORD_ESTADIAS[0], lon:COORD_ESTADIAS[1]});
 for(const [d,c] of Object.entries(COORDS_FIJAS)) geoCache.set(d,{lat:c[0],lon:c[1]});
-
 const pausa = ms => new Promise(r=>setTimeout(r,ms));
-
 async function nominatim(q){
   const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q='+encodeURIComponent(q+', Argentina');
   const res=await fetch(url,{headers:{'Accept':'application/json'}});
@@ -268,7 +251,6 @@ async function nominatim(q){
   const j=await res.json();
   return j.length ? {lat:+j[0].lat, lon:+j[0].lon} : null;
 }
-
 function limpiarDir(d){
   return d
     .replace(/\([^),]*\)?/g,' ')      // saca parentesis, incluso sin cerrar: "(ENT"
@@ -305,7 +287,6 @@ async function geocodificar(dirs){
   if(fallas) log(`${fallas} direcciones sin coordenadas — podes fijarlas a mano en COORDS_FIJAS`);
   btn.textContent=txtOrig; btn.disabled=false;
 }
-
 /* ---------- salida ---------- */
 async function generar(){
   let all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION];
@@ -316,7 +297,6 @@ async function generar(){
   });
   if(antes>all.length) log(`${antes-all.length} filas duplicadas eliminadas (mismo archivo subido 2 veces)`);
   all.sort((a,b)=>a.fecha-b.fecha);
-
   if($('chkGeo').checked){
     await geocodificar([...new Set(all.map(r=>r.localidad))]);
     for(const r of all){
@@ -324,7 +304,6 @@ async function generar(){
       if(g){ r.lat=g.lat; r.lon=g.lon; }
     }
   }
-
   // resumen
   const g={};
   for(const r of all){ (g[r.estacion]??={n:0,l:0,m:0}); g[r.estacion].n++; g[r.estacion].l+=r.litros; g[r.estacion].m+=r.monto||0; }
@@ -337,7 +316,6 @@ async function generar(){
   });
   html+=`<tr class="total"><td>TOTAL</td><td>${tot.n}</td><td>${fmt(tot.l)}</td><td>$ ${fmt(tot.m)}</td></tr>`;
   $('tbl').innerHTML=html; $('resumen').style.display='block';
-
   // excel
   const aoa=[["fecha","patente","localidad","latitud","longitud","litros","monto","tipo_combustible","estacion"]];
   for(const r of all) aoa.push([r.fecha,r.patente,r.localidad,r.lat,r.lon,r.litros,r.monto,r.tipo_combustible,r.estacion]);
@@ -351,7 +329,6 @@ async function generar(){
   XLSX.utils.book_append_sheet(wbOut,ws,"Remitos");
   XLSX.writeFile(wbOut,"remitos_unificados.xlsx");
 }
-
 /* ---------- eventos ---------- */
 const drop=$('drop');
 $('fileInput').addEventListener('change',e=>{[...e.target.files].forEach(procesar); e.target.value='';});
