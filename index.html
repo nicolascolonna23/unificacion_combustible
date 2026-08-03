@@ -290,12 +290,15 @@ async function geocodificar(dirs){
 /* ---------- salida ---------- */
 async function generar(){
   let all=[...datos.LLANTAY,...datos.ESTADIAS,...datos.YPF,...datos.AXION];
+  // Revisa si hay filas repetidas (idénticas en TODAS las columnas) y deja una sola
   const vistos=new Set(); const antes=all.length;
   all=all.filter(r=>{
-    const k=[+r.fecha,r.patente,r.litros,r.monto,r.tipo_combustible,r.estacion].join('|');
+    const k=[+r.fecha,r.patente,r.localidad,r.litros,r.monto,r.tipo_combustible,r.estacion].join('|');
     if(vistos.has(k)) return false; vistos.add(k); return true;
   });
-  if(antes>all.length) log(`${antes-all.length} filas duplicadas eliminadas (mismo archivo subido 2 veces)`);
+  const dup=antes-all.length;
+  if(dup>0) log(`${dup} fila${dup>1?'s':''} repetida${dup>1?'s':''} eliminada${dup>1?'s':''} (se dejó una de cada una)`);
+  else log(`Sin filas repetidas — ${all.length} filas únicas`);
   all.sort((a,b)=>a.fecha-b.fecha);
   if($('chkGeo').checked){
     await geocodificar([...new Set(all.map(r=>r.localidad))]);
